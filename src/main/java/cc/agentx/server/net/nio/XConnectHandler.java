@@ -28,7 +28,6 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.*;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.util.ReferenceCountUtil;
-import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.FutureListener;
 import io.netty.util.concurrent.Promise;
 import io.netty.util.internal.logging.InternalLogger;
@@ -71,7 +70,6 @@ public final class XConnectHandler extends ChannelInboundHandlerAdapter {
                     if (!exposedRequest) {
                         bytes = wrapper.unwrap(bytes);
                         if (bytes == null) {
-                            log.info("\tClient -> Proxy           \tHalf Request");
                             return;
                         }
                     }
@@ -107,7 +105,6 @@ public final class XConnectHandler extends ChannelInboundHandlerAdapter {
                                 tailDataBuffer.write(tailData, 0, tailData.length);
                             }
                         }
-                        log.info("\tClient -> Proxy           \tTarget {}:{}{}", host, port, DnsCache.isCached(host) ? " [Cached]" : "");
                         if (xRequest.getAtyp() == XRequest.Type.DOMAIN) {
                             try {
                                 host = DnsCache.get(host);
@@ -115,7 +112,6 @@ public final class XConnectHandler extends ChannelInboundHandlerAdapter {
                                     host = xRequest.getHost();
                                 }
                             } catch (UnknownHostException e) {
-                                log.warn("\tClient <- Proxy           \tBad DNS! ({})", e.getMessage());
                                 ctx.writeAndFlush(Unpooled.EMPTY_BUFFER).addListener(ChannelFutureListener.CLOSE);
                                 return;
                             }
@@ -123,30 +119,24 @@ public final class XConnectHandler extends ChannelInboundHandlerAdapter {
 
                         Promise<Channel> promise = ctx.executor().newPromise();
                         promise.addListener(
-                                new FutureListener<Channel>() {
-                                    @Override
-                                    public void operationComplete(final Future<Channel> future) throws Exception {
-                                        final Channel outboundChannel = future.getNow();
-                                        if (future.isSuccess()) {
-                                            // handle tail
-                                            byte[] tailData = tailDataBuffer.toByteArray();
-                                            tailDataBuffer.close();
-                                            if (tailData.length > 0) {
-                                                log.info("\tClient ==========> Target \tSend Tail [{} bytes]", tailData.length);
-                                            }
-                                            outboundChannel.writeAndFlush((tailData.length > 0)
-                                                    ? Unpooled.wrappedBuffer(tailData) : Unpooled.EMPTY_BUFFER)
-                                                    .addListener(channelFuture -> {
-                                                        // task handover
-                                                        outboundChannel.pipeline().addLast(new XRelayHandler(ctx.channel(), wrapper, false));
-                                                        ctx.pipeline().addLast(new XRelayHandler(outboundChannel, wrapper, true));
-                                                        ctx.pipeline().remove(XConnectHandler.this);
-                                                    });
+                                (FutureListener<Channel>) future -> {
+                                    final Channel outboundChannel = future.getNow();
+                                    if (future.isSuccess()) {
+                                        // handle tail
+                                        byte[] tailData = tailDataBuffer.toByteArray();
+                                        tailDataBuffer.close();
+                                        outboundChannel.writeAndFlush((tailData.length > 0)
+                                                ? Unpooled.wrappedBuffer(tailData) : Unpooled.EMPTY_BUFFER)
+                                                .addListener(channelFuture -> {
+                                                    // task handover
+                                                    outboundChannel.pipeline().addLast(new XRelayHandler(ctx.channel(), wrapper, false));
+                                                    ctx.pipeline().addLast(new XRelayHandler(outboundChannel, wrapper, true));
+                                                    ctx.pipeline().remove(XConnectHandler.this);
+                                                });
 
-                                        } else {
-                                            if (ctx.channel().isActive()) {
-                                                ctx.writeAndFlush(Unpooled.EMPTY_BUFFER).addListener(ChannelFutureListener.CLOSE);
-                                            }
+                                    } else {
+                                        if (ctx.channel().isActive()) {
+                                            ctx.writeAndFlush(Unpooled.EMPTY_BUFFER).addListener(ChannelFutureListener.CLOSE);
                                         }
                                     }
                                 }
@@ -163,7 +153,6 @@ public final class XConnectHandler extends ChannelInboundHandlerAdapter {
                             public void operationComplete(ChannelFuture future) throws Exception {
                                 if (!future.isSuccess()) {
                                     if (ctx.channel().isActive()) {
-                                        log.warn("\tClient <- Proxy           \tBad Ping! ({}:{})", finalHost, port);
                                         ctx.writeAndFlush(Unpooled.EMPTY_BUFFER).addListener(ChannelFutureListener.CLOSE);
                                     }
                                 }

@@ -66,7 +66,7 @@ public final class XServer {
                         }
                     });
             log.info("\tStartup {}-{}-server [{}]", Constants.APP_NAME, Constants.APP_VERSION, config.getProtocol());
-            new Thread(() -> new UdpServer().start()).start();
+            // new Thread(() -> new UdpServer().start()).start();
             ChannelFuture future = bootstrap.bind(config.getHost(), config.getPort()).sync();
             future.addListener(future1 -> log.info("\tTCP listening at {}:{}...", config.getHost(), config.getPort()));
             future.channel().closeFuture().sync();
